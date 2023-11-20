@@ -3,7 +3,6 @@ package portal
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -33,7 +32,6 @@ func newClient(dialer *reverse.Dialer,
 		client: &http.Client{
 			Transport: &http2.Transport{
 				DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-					slog.Info(`dial context`, `addr`, addr)
 					c, e := dialer.DialContext(ctx, network, addr)
 					if e != nil {
 						e0 := ctx.Err()
