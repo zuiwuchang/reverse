@@ -118,15 +118,14 @@ if [[ -f "$name" ]];then
 fi
 source=(
     "$target"
-    etc
-    test.key
-    test.crt
+    bridge.jsonnet
+    portal.jsonnet
 )
 other=()
 if [[ "${GOOS}_$GOARCH" == "linux_amd64" ]];then
     other=(
-        tunnel-server.service
-        tunnel.service
+        reverse-bridge.service
+        reverse-portal.service
     )
 fi
 exec="${args[@]} ${source[@]} ${other[@]}"
