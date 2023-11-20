@@ -113,7 +113,7 @@ func forwordH2C(w http.ResponseWriter, r *http.Request, c net.Conn) {
 	f := w.(http.Flusher)
 	f.Flush()
 
-	done := make(chan int, 1)
+	done := make(chan int, 2)
 	go func() {
 		var (
 			b      = pool.GetBytes()
