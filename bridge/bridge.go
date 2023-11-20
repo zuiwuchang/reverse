@@ -3,10 +3,12 @@ package bridge
 import (
 	"encoding/base64"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"log/slog"
@@ -113,51 +115,166 @@ func forwordH2C(w http.ResponseWriter, r *http.Request, c net.Conn) {
 	f := w.(http.Flusher)
 	f.Flush()
 
-	done := make(chan int, 2)
-	go func() {
-		var (
-			b      = pool.GetBytes()
-			n      int
-			er, ew error
-		)
-		for {
-			n, er = c.Read(b)
-			if n > 0 {
-				_, ew = w.Write(b[:n])
-				if ew != nil {
-					break
-				}
-				f.Flush()
-			}
-			if er != nil {
-				break
-			}
-		}
-		pool.PutBytes(b)
-		done <- 1
-	}()
+	newForword(w, r, c).Serve()
 
-	go func() {
-		var (
-			b      = pool.GetBytes()
-			n      int
-			er, ew error
-		)
-		for {
-			n, er = r.Body.Read(b)
-			if n > 0 {
-				_, ew = c.Write(b[:n])
-				if ew != nil {
-					break
-				}
-			}
-			if er != nil {
-				break
+	// done := make(chan int, 2)
+	// go func() {
+	// 	var (
+	// 		b      = pool.GetBytes()
+	// 		n      int
+	// 		er, ew error
+	// 	)
+	// 	for {
+	// 		n, er = c.Read(b)
+	// 		if n > 0 {
+	// 			_, ew = w.Write(b[:n])
+	// 			if ew != nil {
+	// 				break
+	// 			}
+	// 			f.Flush()
+	// 		}
+	// 		if er != nil {
+	// 			break
+	// 		}
+	// 	}
+	// 	pool.PutBytes(b)
+	// 	done <- 1
+	// }()
+
+	// go func() {
+	// 	var (
+	// 		b      = pool.GetBytes()
+	// 		n      int
+	// 		er, ew error
+	// 	)
+	// 	for {
+	// 		n, er = r.Body.Read(b)
+	// 		if n > 0 {
+	// 			_, ew = c.Write(b[:n])
+	// 			if ew != nil {
+	// 				break
+	// 			}
+	// 		}
+	// 		if er != nil {
+	// 			break
+	// 		}
+	// 	}
+	// 	pool.PutBytes(b)
+	// 	done <- 2
+	// }()
+	// // wait any error
+	// <-done
+}
+
+type _Forword struct {
+	w      http.ResponseWriter
+	r      *http.Request
+	c      net.Conn
+	done   chan struct{}
+	closed uint32
+
+	chr chan []byte
+	chw chan []byte
+}
+
+func newForword(w http.ResponseWriter, r *http.Request, c net.Conn) *_Forword {
+	return &_Forword{
+		w:    w,
+		r:    r,
+		c:    c,
+		done: make(chan struct{}),
+		chr:  make(chan []byte, 32),
+		chw:  make(chan []byte, 32),
+	}
+}
+func (f *_Forword) Close() {
+	if f.closed == 0 && atomic.CompareAndSwapUint32(&f.closed, 0, 1) {
+		close(f.done)
+	}
+}
+func (f *_Forword) Serve() {
+	go f.read(f.chr, f.c)
+	go f.read(f.chw, f.r.Body)
+
+	go f.write(f.w, f.chr)
+	go f.write(f.c, f.chw)
+
+	<-f.done
+}
+func (f *_Forword) read(w chan []byte, r io.Reader) {
+	for {
+		b := pool.GetBytes()
+		n, e := r.Read(b)
+		if e != nil {
+			break
+		}
+		if n > 0 {
+			select {
+			case <-f.done:
+				return
+			case w <- b[:n]:
 			}
 		}
-		pool.PutBytes(b)
-		done <- 2
-	}()
-	// wait any error
-	<-done
+	}
+	f.Close()
+}
+func (f *_Forword) write(w io.Writer, r chan []byte) {
+	flusher, ok := w.(http.Flusher)
+	if ok {
+		var bs [][]byte
+		var merge int
+		for {
+			select {
+			case <-f.done:
+				return
+			case b := <-r:
+				bs = append(bs, b)
+			}
+		MERGE:
+			for merge < 1024*1024 {
+				select {
+				case <-f.done:
+					for _, b := range bs {
+						pool.PutBytes(b)
+					}
+					return
+				case b := <-r:
+					bs = append(bs, b)
+					merge += len(b)
+				default:
+					break MERGE
+				}
+			}
+
+			for _, b := range bs {
+				_, e := w.Write(b)
+				if e != nil {
+					f.Close()
+					for _, b := range bs {
+						pool.PutBytes(b)
+					}
+					return
+				}
+			}
+			flusher.Flush()
+
+			for _, b := range bs {
+				pool.PutBytes(b)
+			}
+		}
+	} else {
+		for {
+			select {
+			case <-f.done:
+				return
+			case b := <-r:
+				_, e := w.Write(b)
+				pool.PutBytes(b)
+				if e != nil {
+					f.Close()
+					return
+				}
+			}
+		}
+	}
 }

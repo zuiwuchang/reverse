@@ -10,7 +10,7 @@ func init() {
 	}
 }
 func GetBytes() []byte {
-	return bytes.Get().([]byte)
+	return bytes.Get().([]byte)[:1024*32]
 }
 func PutBytes(b []byte) {
 	bytes.Put(b)
