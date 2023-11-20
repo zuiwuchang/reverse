@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -24,6 +25,8 @@ func newClient(dialer *reverse.Dialer,
 	send, recv *uint64,
 	expired *int64,
 	maxseconds int64,
+	portal string,
+	maxsize uint64,
 ) *Client {
 	return &Client{
 		send:    send,
@@ -63,6 +66,11 @@ func newClient(dialer *reverse.Dialer,
 							recv: recv,
 						}
 					}
+					slog.Info(`new dial`,
+						`Portal`, portal,
+						`MaxMB`, maxsize,
+						`MaxSeconds`, maxseconds,
+					)
 					return c, e
 				},
 				AllowHTTP: true,

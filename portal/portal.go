@@ -129,10 +129,14 @@ func (p *Portal) Serve() {
 			if p.maxseconds > 0 {
 				at = new(int64)
 			}
-			client = newClient(p.dialer, send, recv, at, p.maxseconds)
+			maxsize := p.maxsize / 1024 / 1024
+			client = newClient(p.dialer, send, recv, at, p.maxseconds,
+				p.addr,
+				maxsize,
+			)
 			slog.Info(`new client`,
 				`Portal`, p.addr,
-				`MaxMB`, p.maxsize/1024/1024,
+				`MaxMB`, maxsize,
 				`MaxSeconds`, p.maxseconds,
 			)
 		}
