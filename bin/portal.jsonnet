@@ -1,3 +1,13 @@
+local opts = {
+  Pool: {
+    // Multiple memory pools with the same tag will be merged
+    Tag: 'default',
+    // Memory block size
+    Cap: 1024 * 128,
+    // How many blocks to cache
+    Len: 8 * 10,
+  },
+};
 [
   {
     // listen addr, 'bridge' will connect this addr
@@ -10,7 +20,7 @@
     MaxMB: 1024 * 10,
     // Data forwarding target
     Forwards: [
-      {
+      opts + {
         From: ':4104',
         To: 'tcp://127.0.0.1:80',
       },
