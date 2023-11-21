@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"bufio"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zuiwuchang/reverse/configure"
+	"github.com/zuiwuchang/reverse/pool"
 )
 
 type Forword struct {
@@ -19,6 +21,7 @@ type Forword struct {
 	recv  chan *Client
 	to    string
 	token string
+	pool  *pool.Pool
 }
 
 func newForword(opts *configure.Forward, token string, done <-chan struct{}, ch chan<- chan *Client) (f *Forword, e error) {
@@ -33,6 +36,7 @@ func newForword(opts *configure.Forward, token string, done <-chan struct{}, ch 
 		recv:  make(chan *Client),
 		to:    opts.To,
 		token: token,
+		pool:  pool.Get(opts.Pool.Tag, opts.Pool.Cap, opts.Pool.Len),
 	}
 	return
 }
@@ -80,21 +84,24 @@ func (f *Forword) connect(c net.Conn) {
 	case <-f.done:
 		return
 	case client := <-f.recv:
-		resp, e := f.connectH2C(client, c)
+		resp, e := f.connectH2C(client, bufio.NewReaderSize(c, 1024*32))
 		if e != nil {
 			slog.Warn(`connect h2c fail`,
 				`error`, e,
 			)
 			return
 		}
-		io.Copy(c, resp.Body)
+		buf := f.pool.Get()
+		io.CopyBuffer(c, resp.Body, buf)
+		f.pool.Put(buf)
 		time.Sleep(time.Second)
 		c.Close()
 		resp.Body.Close()
 	}
 }
-func (f *Forword) connectH2C(client *Client, c net.Conn) (resp *http.Response, e error) {
-	req, e := http.NewRequest(http.MethodPost, `http://127.0.0.1/video/live`, c)
+
+func (f *Forword) connectH2C(client *Client, body io.Reader) (resp *http.Response, e error) {
+	req, e := http.NewRequest(http.MethodPost, `http://127.0.0.1/video/live`, body)
 	if e != nil {
 		return
 	}

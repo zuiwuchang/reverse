@@ -21,6 +21,9 @@ type Forward struct {
 
 	// 'bridge' will connect this address and serve as the data forwarding target
 	To string
+
+	// memory pool
+	Pool Pool
 }
 
 func LoadPortal(filename string) (cnfs []Portal, e error) {
